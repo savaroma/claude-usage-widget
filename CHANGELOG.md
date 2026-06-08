@@ -4,7 +4,26 @@ All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Added
+- **Embed inside the taskbar** (`$EmbedInTaskbar`, default on) via
+  `SetParent(Shell_TrayWnd)` — the pill lives in the taskbar like the weather
+  widget. Configurable side/offset (`$TaskbarSide`, `$TaskbarLeftOffset`,
+  `$TaskbarRightGap`); re-embeds itself if the taskbar is recreated.
+- **Watchdog** (`watchdog.ps1` + `start-watchdog.vbs`): relaunches the widget if
+  it dies (e.g. the embedded window is destroyed when explorer.exe restarts).
+  "Start at login" now installs the watchdog.
+- Pill now shows **both 5h and 7d** utilization, each with its own colored dot.
+
+### Changed
+- Poll interval 45s → 60s.
+- "Lock position" menu item is hidden in embed mode (dragging doesn't apply).
+- Debug logging is now off by default (`$DebugLogging`).
+
 ### Fixed
+- **Rate-limit handling:** the usage endpoint returns HTTP 429 if polled too
+  often. Replaced the fixed 5s retry (which hammered the endpoint and kept the
+  pill gray) with exponential backoff (90s start on 429, capped at 10 min) that
+  pauses normal polling and keeps showing the last good value.
 - Pill could be hidden behind the taskbar after a reboot when a stale
   `widget-pos.txt` pointed onto the taskbar band or a disconnected monitor.
   Saved/dragged positions are now clamped to a visible work area (above the

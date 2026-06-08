@@ -21,15 +21,44 @@ public class WinApi {
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll", SetLastError=true)]
     public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)]
+    public static extern IntPtr FindWindow(string lpClass, string lpWindow);
+    [DllImport("user32.dll", CharSet=CharSet.Auto)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr child, string lpClass, string lpWindow);
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetParent(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
+
+# ---- debug logging (off by default; set $DebugLogging=$true to troubleshoot) ---
+$DebugLogging = $false
+$DebugLog = Join-Path $PSScriptRoot 'debug.err.log'
+function Dbg($m) { if ($DebugLogging) { $m | Out-File $DebugLog -Append -Encoding utf8 } }
+Dbg "START $([DateTime]::Now.ToString('HH:mm:ss')) pid=$PID"
+trap { Dbg "TRAP @line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message) | $($_.InvocationInfo.Line.Trim())" }
+
+# experimental: embed the pill INSIDE the taskbar via SetParent(Shell_TrayWnd).
+# Set to $false to fall back to the reliable "floating just above the taskbar" mode.
+$EmbedInTaskbar = $true
+$TaskbarSide       = 'left'   # 'left' (by the weather/Widgets button) or 'right' (before the clock)
+$TaskbarLeftOffset = 175      # px from the taskbar's left edge when side = 'left' (clears Widgets button)
+$TaskbarRightGap   = 10       # px gap before the system tray when side = 'right'
 
 # ---- config -------------------------------------------------------------------
 $CredPath    = Join-Path $env:USERPROFILE ".claude\.credentials.json"
 $ApiUrl      = "https://api.anthropic.com/api/oauth/usage"
-$PollSeconds = 45
+$PollSeconds = 60
 $PosFile     = Join-Path $PSScriptRoot "widget-pos.txt"
-$W = 92; $H = 34          # pill size
+$W = 150; $H = 34         # pill size (wide enough for 5h + 7d)
 
 function Get-StatusColor([int]$pct) {
     if     ($pct -ge 90) { [System.Drawing.Color]::FromArgb(235, 70, 70)  }
@@ -45,14 +74,20 @@ function Get-Usage {
         $token = $cred.claudeAiOauth.accessToken
         if (-not $token) { return $null }
         $headers = @{ "Authorization"="Bearer $token"; "anthropic-beta"="oauth-2025-04-20"; "Content-Type"="application/json" }
-        return Invoke-RestMethod -Uri $ApiUrl -Headers $headers -Method Get -TimeoutSec 15
-    } catch { return $null }
+        $r = Invoke-RestMethod -Uri $ApiUrl -Headers $headers -Method Get -TimeoutSec 15
+        $script:HttpErr = 0
+        return $r
+    } catch {
+        $script:HttpErr = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+        return $null
+    }
 }
 function Util([object]$s)  { if ($s -and $s.utilization -ne $null) { [int][math]::Round([double]$s.utilization) } else { -1 } }
 function Reset([object]$s) { if ($s -and $s.resets_at) { try { ([datetimeoffset]::Parse($s.resets_at)).LocalDateTime.ToString("ddd HH:mm") } catch { "--" } } else { "--" } }
 
 # ---- shared state -------------------------------------------------------------
 $script:H5 = -1; $script:Col = (Get-StatusColor 0); $script:Ok = $false
+$script:D7 = -1; $script:Col7 = (Get-StatusColor 0); $script:HttpErr = 0
 
 # ---- form ---------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
@@ -102,15 +137,21 @@ $form.add_Paint({
     $g = $e.Graphics
     $g.SmoothingMode     = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
-    # status dot
-    $dot = New-Object System.Drawing.SolidBrush $script:Col
-    $g.FillEllipse($dot, 11, ([int](($H-10)/2)), 10, 10); $dot.Dispose()
-    # texts
     $white = [System.Drawing.Brushes]::White
     $grey  = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(170,170,170))
-    $g.DrawString("5h", $fontLbl, $grey, 27, 9)
-    $pct = if ($script:Ok) { "$($script:H5)%" } else { "-" }
-    $g.DrawString($pct, $fontPct, $white, 44, 7)
+    $dy    = [int](($H - 10) / 2)
+    # 5h segment
+    $d5 = New-Object System.Drawing.SolidBrush $script:Col
+    $g.FillEllipse($d5, 8, $dy, 10, 10); $d5.Dispose()
+    $g.DrawString("5h", $fontLbl, $grey, 22, 9)
+    $v5 = if ($script:Ok) { "$($script:H5)%" } else { "-" }
+    $g.DrawString($v5, $fontPct, $white, 38, 7)
+    # 7d segment
+    $d7b = New-Object System.Drawing.SolidBrush $script:Col7
+    $g.FillEllipse($d7b, 82, $dy, 10, 10); $d7b.Dispose()
+    $g.DrawString("7d", $fontLbl, $grey, 96, 9)
+    $v7 = if ($script:Ok) { "$($script:D7)%" } else { "-" }
+    $g.DrawString($v7, $fontPct, $white, 112, 7)
     $grey.Dispose()
 })
 
@@ -121,7 +162,7 @@ $tip.InitialDelay = 200; $tip.ReshowDelay = 100
 # context menu
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miRefresh = $menu.Items.Add("Refresh now")
-$miLock    = $menu.Items.Add("Lock position")
+if (-not $EmbedInTaskbar) { $miLock = $menu.Items.Add("Lock position") }   # drag only matters when floating
 $miStartup = $menu.Items.Add("Start at login")
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $miExit    = $menu.Items.Add("Exit")
@@ -129,36 +170,42 @@ $form.ContextMenuStrip = $menu
 
 # drag to move (unless locked)
 $script:Locked = $false; $script:Drag = $false; $script:DX = 0; $script:DY = 0
-$form.add_MouseDown({ param($s,$e) if ($e.Button -eq 'Left' -and -not $script:Locked) { $script:Drag=$true; $script:DX=$e.X; $script:DY=$e.Y } })
+$form.add_MouseDown({ param($s,$e) if ($e.Button -eq 'Left' -and -not $script:Locked -and -not $EmbedInTaskbar) { $script:Drag=$true; $script:DX=$e.X; $script:DY=$e.Y } })
 $form.add_MouseMove({ param($s,$e) if ($script:Drag) { $form.Left=[System.Windows.Forms.Cursor]::Position.X-$script:DX; $form.Top=[System.Windows.Forms.Cursor]::Position.Y-$script:DY } })
 $form.add_MouseUp({   param($s,$e) if ($script:Drag) { $script:Drag=$false; $form.Location = (Clamp-Pos $form.Left $form.Top); try { "$($form.Left),$($form.Top)" | Set-Content $PosFile } catch {} } })
 
-# resilient update: on a transient failure (e.g. Claude Code rewriting the
-# credentials file on a session change) keep the last good value instead of
-# blanking to gray, and retry every 5s until it recovers.
+# resilient update with backoff: on failure keep the last good value (don't blank
+# to gray) and retry with growing delay - critical for HTTP 429 (the usage endpoint
+# is rate-limited), so we must NOT hammer it.
 $script:Fails = 0
 $retryTimer = New-Object System.Windows.Forms.Timer
-$retryTimer.Interval = 5000
+$retryTimer.Interval = 30000
 
 function Update-Usage {
     $u = Get-Usage
     if ($null -eq $u) {
         $script:Fails++
-        if ((-not $script:Ok) -or ($script:Fails -ge 5)) {
-            # never had data, or down for a while -> show the gray "no data" state
-            $script:Ok = $false; $script:H5 = -1; $script:Col = [System.Drawing.Color]::Gray
-            $tip.SetToolTip($form, "No data - is Claude Code logged in? (run /login)")
+        # backoff: 429 starts at 90s, other errors at 20s; doubling, capped at 10 min
+        $base = if ($script:HttpErr -eq 429) { 90 } else { 20 }
+        $wait = [int][Math]::Min($base * [Math]::Pow(2, [Math]::Min($script:Fails - 1, 3)), 600)
+        $timer.Stop()                                   # pause normal polling while backing off
+        $retryTimer.Interval = $wait * 1000
+        $retryTimer.Stop(); $retryTimer.Start()
+        $why = if ($script:HttpErr -eq 429) { "rate-limited" } elseif ($script:HttpErr -ne 0) { "HTTP $($script:HttpErr)" } else { "offline / not logged in" }
+        if ($script:Ok) {
+            $tip.SetToolTip($form, "5h: $($script:H5)%  7d: $($script:D7)%  ($why, retry in ${wait}s)")   # keep last good values
         } else {
-            # keep showing the last good value, just mark it stale
-            $tip.SetToolTip($form, "5h: $($script:H5)%  (reconnecting...)")
+            $script:H5 = -1; $script:D7 = -1; $script:Col = [System.Drawing.Color]::Gray; $script:Col7 = [System.Drawing.Color]::Gray
+            $tip.SetToolTip($form, "No data ($why) - retrying in ${wait}s")
         }
-        $retryTimer.Start()
         $form.Invalidate(); Force-Top
         return
     }
     $script:Fails = 0; $retryTimer.Stop()
+    if (-not $timer.Enabled) { $timer.Start() }         # resume normal polling
     $h5  = Util $u.five_hour; $d7 = Util $u.seven_day; $d7s = Util $u.seven_day_sonnet
     $script:Ok = $true; $script:H5 = $h5; $script:Col = (Get-StatusColor $h5)
+    $script:D7 = $d7; $script:Col7 = (Get-StatusColor $d7)
     $sonTxt = if ($d7s -ge 0) { "$d7s%" } else { "n/a" }
     $tip.SetToolTip($form, "5h: $h5%  (resets $(Reset $u.five_hour))`n7d: $d7%  (resets $(Reset $u.seven_day))`n7d Sonnet: $sonTxt`nupdated $((Get-Date).ToString('HH:mm:ss'))")
     $form.Invalidate(); Force-Top
@@ -166,16 +213,16 @@ function Update-Usage {
 $retryTimer.add_Tick({ Update-Usage })
 
 $miRefresh.add_Click({ Update-Usage })
-$miLock.add_Click({ $script:Locked = -not $script:Locked; $miLock.Text = if ($script:Locked) { "Unlock position" } else { "Lock position" } })
+if (-not $EmbedInTaskbar) { $miLock.add_Click({ $script:Locked = -not $script:Locked; $miLock.Text = if ($script:Locked) { "Unlock position" } else { "Lock position" } }) }
 $miStartup.add_Click({
     try {
         $startup = [Environment]::GetFolderPath('Startup')
         $ws = New-Object -ComObject WScript.Shell
         $lnk = $ws.CreateShortcut((Join-Path $startup "Claude Usage Widget.lnk"))
-        $lnk.TargetPath = (Join-Path $PSScriptRoot "start-widget.vbs")
+        $lnk.TargetPath = (Join-Path $PSScriptRoot "start-watchdog.vbs")   # watchdog keeps it alive
         $lnk.WorkingDirectory = $PSScriptRoot
         $lnk.Save()
-        [System.Windows.Forms.MessageBox]::Show("Added to startup.","Claude Usage Widget") | Out-Null
+        [System.Windows.Forms.MessageBox]::Show("Added to startup (via watchdog).","Claude Usage Widget") | Out-Null
     } catch { [System.Windows.Forms.MessageBox]::Show("Failed: $_","Claude Usage Widget") | Out-Null }
 })
 $miExit.add_Click({ $form.Close() })
@@ -185,21 +232,63 @@ $timer.Interval = $PollSeconds * 1000
 $timer.add_Tick({ Update-Usage })
 $timer.Start()
 
-# keep the pill above the taskbar: tool-window + no-activate + topmost, re-asserted often
-function Force-Top { [WinApi]::SetWindowPos($form.Handle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null }
+# ---- positioning modes --------------------------------------------------------
+# floating mode: keep above the taskbar by re-asserting top-most (no-op when embedded)
+function Force-Top { if ($EmbedInTaskbar) { return }; [WinApi]::SetWindowPos($form.Handle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null }
+
+# embed mode: make the window a child of the taskbar (Shell_TrayWnd) - the loophole.
+# Fragile: must be re-applied when explorer.exe restarts (Embed-Check handles that).
+$script:Tray = [IntPtr]::Zero
+function Embed-Taskbar {
+    $tray = [WinApi]::FindWindow("Shell_TrayWnd", $null)
+    if ($tray -eq [IntPtr]::Zero) { Dbg "embed: Shell_TrayWnd not found"; return }
+    $script:Tray = $tray
+    # WS_CHILD (bit30) on, WS_POPUP (bit31) off -> lives inside the taskbar
+    $st = [WinApi]::GetWindowLong($form.Handle, -16)          # GWL_STYLE
+    $st = ($st -bor 0x40000000) -band 0x7FFFFFFF
+    [WinApi]::SetWindowLong($form.Handle, -16, $st) | Out-Null
+    [WinApi]::SetParent($form.Handle, $tray) | Out-Null
+    # position just left of the system-tray clock
+    $tr = New-Object WinApi+RECT; [WinApi]::GetWindowRect($tray, [ref]$tr) | Out-Null
+    if ($TaskbarSide -eq 'left') {
+        $x = $TaskbarLeftOffset
+    } else {
+        $notify = [WinApi]::FindWindowEx($tray, [IntPtr]::Zero, "TrayNotifyWnd", $null)
+        $rightEdge = $tr.Right
+        if ($notify -ne [IntPtr]::Zero) { $nr = New-Object WinApi+RECT; [WinApi]::GetWindowRect($notify, [ref]$nr) | Out-Null; $rightEdge = $nr.Left }
+        $x = ($rightEdge - $tr.Left) - $W - $TaskbarRightGap
+    }
+    $y = [int]((($tr.Bottom - $tr.Top) - $H) / 2)
+    [WinApi]::MoveWindow($form.Handle, $x, $y, $W, $H, $true) | Out-Null
+    Dbg "embed ok: tray=$tray x=$x y=$y h=$($tr.Bottom-$tr.Top)"
+}
+function Embed-Check {
+    if (-not [WinApi]::IsWindow($form.Handle)) { return }
+    $p = [WinApi]::GetParent($form.Handle)
+    if (($p -ne $script:Tray) -or (-not [WinApi]::IsWindow($script:Tray))) { Embed-Taskbar }
+}
+
 $form.add_Shown({
-    $ex = [WinApi]::GetWindowLong($form.Handle, -20)              # GWL_EXSTYLE
-    # WS_EX_TOOLWINDOW(0x80) | WS_EX_NOACTIVATE(0x08000000) | WS_EX_TOPMOST(0x8)
-    [WinApi]::SetWindowLong($form.Handle, -20, ($ex -bor 0x80 -bor 0x08000000 -bor 0x8)) | Out-Null
-    Force-Top
+    if ($EmbedInTaskbar) {
+        Embed-Taskbar
+    } else {
+        $ex = [WinApi]::GetWindowLong($form.Handle, -20)      # GWL_EXSTYLE
+        # WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST
+        [WinApi]::SetWindowLong($form.Handle, -20, ($ex -bor 0x80 -bor 0x08000000 -bor 0x8)) | Out-Null
+        Force-Top
+    }
     Update-Usage
 })
-$form.add_Click({ Force-Top })
-$form.add_Deactivate({ Force-Top })
+if (-not $EmbedInTaskbar) {
+    $form.add_Click({ Force-Top })
+    $form.add_Deactivate({ Force-Top })
+}
 
-$topTimer = New-Object System.Windows.Forms.Timer   # cheap z-order guard
+$topTimer = New-Object System.Windows.Forms.Timer   # z-order guard / re-embed watchdog
 $topTimer.Interval = 1000
-$topTimer.add_Tick({ Force-Top })
+$topTimer.add_Tick({ if ($EmbedInTaskbar) { Embed-Check } else { Force-Top } })
 $topTimer.Start()
 
+Dbg "REACHED Run; visible=$($form.Visible) loc=$($form.Location) size=$($form.Size)"
 [System.Windows.Forms.Application]::Run($form)
+Dbg "EXITED Run $([DateTime]::Now.ToString('HH:mm:ss'))"

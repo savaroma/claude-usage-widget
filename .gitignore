@@ -4,6 +4,8 @@ widget-pos.txt
 # logs / scratch
 *.log
 *.tmp
+debug.err.log
+status.txt
 
 # OS
 Thumbs.db
