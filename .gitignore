@@ -1,0 +1,10 @@
+# runtime state (per-machine widget position)
+widget-pos.txt
+
+# logs / scratch
+*.log
+*.tmp
+
+# OS
+Thumbs.db
+desktop.ini
