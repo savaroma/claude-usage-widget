@@ -75,15 +75,24 @@ $path.AddArc(0, $H - $d, $d, $d, 90, 90)
 $path.CloseFigure()
 $form.Region = New-Object System.Drawing.Region $path
 
-# position: saved, else bottom-left over the taskbar (just right of the weather pill)
+# keep a position inside a visible work area (above the taskbar, on a connected
+# monitor) so a stale saved spot can never hide the pill behind the taskbar
+function Clamp-Pos([int]$x, [int]$y) {
+    $r  = New-Object System.Drawing.Rectangle $x, $y, $W, $H
+    $wa = [System.Windows.Forms.Screen]::FromRectangle($r).WorkingArea
+    $nx = [int][Math]::Max($wa.Left + 2, [Math]::Min($x, $wa.Right  - $W - 2))
+    $ny = [int][Math]::Max($wa.Top + 2,  [Math]::Min($y, $wa.Bottom - $H - 2))
+    New-Object System.Drawing.Point($nx, $ny)
+}
+
+# position: saved (clamped), else bottom-left just above the taskbar
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen
-$tbH = $scr.Bounds.Height - $scr.WorkingArea.Height; if ($tbH -le 0) { $tbH = 48 }
 $defX = $scr.Bounds.Left + 12
-$defY = $scr.WorkingArea.Bottom - $H - 6   # just ABOVE the taskbar (never covered by it)
+$defY = $scr.WorkingArea.Bottom - $H - 6
 if (Test-Path $PosFile) {
     try { $p = (Get-Content $PosFile -Raw).Split(','); $defX = [int]$p[0]; $defY = [int]$p[1] } catch {}
 }
-$form.Location = New-Object System.Drawing.Point($defX, $defY)
+$form.Location = Clamp-Pos $defX $defY
 
 # painting: status dot + percent text
 $fontPct = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
@@ -122,7 +131,7 @@ $form.ContextMenuStrip = $menu
 $script:Locked = $false; $script:Drag = $false; $script:DX = 0; $script:DY = 0
 $form.add_MouseDown({ param($s,$e) if ($e.Button -eq 'Left' -and -not $script:Locked) { $script:Drag=$true; $script:DX=$e.X; $script:DY=$e.Y } })
 $form.add_MouseMove({ param($s,$e) if ($script:Drag) { $form.Left=[System.Windows.Forms.Cursor]::Position.X-$script:DX; $form.Top=[System.Windows.Forms.Cursor]::Position.Y-$script:DY } })
-$form.add_MouseUp({   param($s,$e) if ($script:Drag) { $script:Drag=$false; try { "$($form.Left),$($form.Top)" | Set-Content $PosFile } catch {} } })
+$form.add_MouseUp({   param($s,$e) if ($script:Drag) { $script:Drag=$false; $form.Location = (Clamp-Pos $form.Left $form.Top); try { "$($form.Left),$($form.Top)" | Set-Content $PosFile } catch {} } })
 
 # resilient update: on a transient failure (e.g. Claude Code rewriting the
 # credentials file on a session change) keep the last good value instead of

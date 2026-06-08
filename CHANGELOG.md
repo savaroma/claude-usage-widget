@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
+### Fixed
+- Pill could be hidden behind the taskbar after a reboot when a stale
+  `widget-pos.txt` pointed onto the taskbar band or a disconnected monitor.
+  Saved/dragged positions are now clamped to a visible work area (above the
+  taskbar, on a connected screen) on load and on drag-release.
 
 ## [0.1.0] - 2026-06-08
 ### Added
