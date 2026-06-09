@@ -93,6 +93,13 @@ TrafficMonitor uses) to make the window a child of the taskbar.
   refresh token and break Claude Code's login); the widget relies on Claude Code
   keeping the credentials file fresh.
 
+## macOS port
+
+Want the same thing in the macOS menu bar (top-right)? See
+[docs/macos-prompt.md](docs/macos-prompt.md) — a ready-to-paste prompt with all the
+endpoint details and the macOS-specific Keychain token location. Tracked on the
+`macos` branch.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
