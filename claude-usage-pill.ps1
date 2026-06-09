@@ -58,7 +58,7 @@ $CredPath    = Join-Path $env:USERPROFILE ".claude\.credentials.json"
 $ApiUrl      = "https://api.anthropic.com/api/oauth/usage"
 $PollSeconds = 60
 $PosFile     = Join-Path $PSScriptRoot "widget-pos.txt"
-$W = 150; $H = 34         # pill size (wide enough for 5h + 7d)
+$W = 195; $H = 34         # pill size (5h % + reset countdown + 7d %)
 
 function Get-StatusColor([int]$pct) {
     if     ($pct -ge 90) { [System.Drawing.Color]::FromArgb(235, 70, 70)  }
@@ -84,10 +84,18 @@ function Get-Usage {
 }
 function Util([object]$s)  { if ($s -and $s.utilization -ne $null) { [int][math]::Round([double]$s.utilization) } else { -1 } }
 function Reset([object]$s) { if ($s -and $s.resets_at) { try { ([datetimeoffset]::Parse($s.resets_at)).LocalDateTime.ToString("ddd HH:mm") } catch { "--" } } else { "--" } }
+function Fmt-Remain([object]$dto) {
+    if ($null -eq $dto) { return "" }
+    $rem = $dto - [datetimeoffset]::UtcNow
+    if ($rem.TotalSeconds -le 0) { return "now" }
+    $h = [int][Math]::Floor($rem.TotalHours)
+    if ($h -gt 0) { "{0}h{1:00}m" -f $h, $rem.Minutes } else { "{0}m" -f $rem.Minutes }
+}
 
 # ---- shared state -------------------------------------------------------------
 $script:H5 = -1; $script:Col = (Get-StatusColor 0); $script:Ok = $false
 $script:D7 = -1; $script:Col7 = (Get-StatusColor 0); $script:HttpErr = 0
+$script:Reset5 = [datetimeoffset]::MinValue
 
 # ---- form ---------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
@@ -98,6 +106,8 @@ $form.StartPosition   = 'Manual'
 $form.Size            = New-Object System.Drawing.Size($W, $H)
 $form.BackColor       = [System.Drawing.Color]::FromArgb(32, 32, 32)
 $form.Opacity         = 0.94
+# enable double buffering (protected property) to avoid repaint flicker
+try { $form.GetType().GetProperty('DoubleBuffered', [Reflection.BindingFlags]'Instance,NonPublic').SetValue($form, $true) } catch {}
 
 # rounded "pill" shape
 $radius = [int]($H / 2)
@@ -132,6 +142,7 @@ $form.Location = Clamp-Pos $defX $defY
 # painting: status dot + percent text
 $fontPct = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
 $fontLbl = New-Object System.Drawing.Font("Segoe UI", 9,  [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
+$fontSm  = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
 $form.add_Paint({
     param($s, $e)
     $g = $e.Graphics
@@ -140,18 +151,22 @@ $form.add_Paint({
     $white = [System.Drawing.Brushes]::White
     $grey  = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(170,170,170))
     $dy    = [int](($H - 10) / 2)
-    # 5h segment
+    # 5h segment + countdown to its reset
     $d5 = New-Object System.Drawing.SolidBrush $script:Col
     $g.FillEllipse($d5, 8, $dy, 10, 10); $d5.Dispose()
     $g.DrawString("5h", $fontLbl, $grey, 22, 9)
     $v5 = if ($script:Ok) { "$($script:H5)%" } else { "-" }
     $g.DrawString($v5, $fontPct, $white, 38, 7)
+    if ($script:Ok) {
+        $cd = Fmt-Remain $script:Reset5
+        if ($cd) { $g.DrawString($cd, $fontSm, $grey, 74, 9) }
+    }
     # 7d segment
     $d7b = New-Object System.Drawing.SolidBrush $script:Col7
-    $g.FillEllipse($d7b, 82, $dy, 10, 10); $d7b.Dispose()
-    $g.DrawString("7d", $fontLbl, $grey, 96, 9)
+    $g.FillEllipse($d7b, 122, $dy, 10, 10); $d7b.Dispose()
+    $g.DrawString("7d", $fontLbl, $grey, 136, 9)
     $v7 = if ($script:Ok) { "$($script:D7)%" } else { "-" }
-    $g.DrawString($v7, $fontPct, $white, 112, 7)
+    $g.DrawString($v7, $fontPct, $white, 152, 7)
     $grey.Dispose()
 })
 
@@ -206,6 +221,7 @@ function Update-Usage {
     $h5  = Util $u.five_hour; $d7 = Util $u.seven_day; $d7s = Util $u.seven_day_sonnet
     $script:Ok = $true; $script:H5 = $h5; $script:Col = (Get-StatusColor $h5)
     $script:D7 = $d7; $script:Col7 = (Get-StatusColor $d7)
+    try { $script:Reset5 = [datetimeoffset]::Parse($u.five_hour.resets_at) } catch {}
     $sonTxt = if ($d7s -ge 0) { "$d7s%" } else { "n/a" }
     $tip.SetToolTip($form, "5h: $h5%  (resets $(Reset $u.five_hour))`n7d: $d7%  (resets $(Reset $u.seven_day))`n7d Sonnet: $sonTxt`nupdated $((Get-Date).ToString('HH:mm:ss'))")
     $form.Invalidate(); Force-Top

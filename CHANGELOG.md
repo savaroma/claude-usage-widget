@@ -13,9 +13,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   it dies (e.g. the embedded window is destroyed when explorer.exe restarts).
   "Start at login" now installs the watchdog.
 - Pill now shows **both 5h and 7d** utilization, each with its own colored dot.
+- **Countdown to the 5-hour reset** next to the 5h % (e.g. `2h05m`), computed
+  locally from `resets_at` — no extra network requests. Pill widened to 195px.
 
 ### Changed
 - Poll interval 45s → 60s.
+- Countdown refreshes once a minute (on the normal poll); enabled double buffering
+  to avoid repaint flicker.
 - "Lock position" menu item is hidden in embed mode (dragging doesn't apply).
 - Debug logging is now off by default (`$DebugLogging`).
 
