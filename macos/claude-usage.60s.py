@@ -233,21 +233,22 @@ def render(st, stale, now):
         line = seg5 + "  " + seg7 + ("  ⚠︎" if stale else "")
         out.append(line + " | font=Menlo size=13")
         out.append("---")
-        # dropdown details
-        out.append("5h limit: %s%s | color=%s" % (
+        # dropdown details: default text color (adapts to light/dark menu) with a
+        # colored status dot up front, so it stays readable on a white background.
+        out.append("%s 5h limit: %s%s" % (
+            dot_for(h5),
             ("%d%%" % h5) if h5 is not None else "—",
             ("   resets in %s (%s)" % (countdown(g.get("r5"), now), reset_abs(g.get("r5"))))
-            if g.get("r5") else "",
-            _hex(h5)))
-        out.append("7d limit: %s%s | color=%s" % (
+            if g.get("r5") else ""))
+        out.append("%s 7d limit: %s%s" % (
+            dot_for(d7),
             ("%d%%" % d7) if d7 is not None else "—",
-            ("   resets %s" % reset_abs(g.get("r7"))) if g.get("r7") else "",
-            _hex(d7)))
+            ("   resets %s" % reset_abs(g.get("r7"))) if g.get("r7") else ""))
         d7s = g.get("d7s")
-        out.append("7d Sonnet: %s%s | color=%s" % (
+        out.append("%s 7d Sonnet: %s%s" % (
+            dot_for(d7s),
             ("%d%%" % d7s) if d7s is not None else "n/a",
-            ("   resets %s" % reset_abs(g.get("r7s"))) if g.get("r7s") else "",
-            _hex(d7s)))
+            ("   resets %s" % reset_abs(g.get("r7s"))) if g.get("r7s") else ""))
         out.append("---")
         ago = int(now - g.get("at", now))
         if stale:
@@ -263,18 +264,6 @@ def render(st, stale, now):
     out.append("Refresh now | refresh=true")
     out.append("Open project page | href=%s" % REPO)
     print("\n".join(out))
-
-
-def _hex(pct):
-    if pct is None or pct < 0:
-        return "#999999"
-    if pct >= 90:
-        return "#eb4646"
-    if pct >= 70:
-        return "#f5961e"
-    if pct >= 40:
-        return "#ebcd28"
-    return "#46cd64"
 
 
 if __name__ == "__main__":
