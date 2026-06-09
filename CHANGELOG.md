@@ -24,6 +24,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   locally from `resets_at` — no extra network requests. Pill widened to 195px.
 
 ### Changed
+- **Repository reorganized** into per-platform folders: Windows scripts moved to
+  `windows/`, macOS plugin in `macos/`. Added a top-level overview README plus
+  `windows/README.md`.
 - Poll interval 45s → 60s.
 - Countdown refreshes once a minute (on the normal poll); enabled double buffering
   to avoid repaint flicker.
