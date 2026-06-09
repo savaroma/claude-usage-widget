@@ -100,6 +100,15 @@ Want the same thing in the macOS menu bar (top-right)? See
 endpoint details and the macOS-specific Keychain token location. Tracked on the
 `macos` branch.
 
+## Disclaimer
+
+Unofficial and **not affiliated with Anthropic**. This tool reads your Claude
+*subscription* usage via an **undocumented** endpoint (`/api/oauth/usage`) using the
+OAuth token Claude Code already stores locally. It only ever touches **your own**
+token on **your own** machine and sends nothing anywhere else. The endpoint is
+undocumented and rate-limited — it may change or stop working at any time. Embedding
+into the taskbar relies on an unsupported `SetParent` technique. Use at your own risk.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
