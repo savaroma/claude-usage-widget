@@ -5,6 +5,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 ### Added
+- **macOS menu-bar widget** (`macos/claude-usage.60s.py`): a SwiftBar/xbar plugin
+  showing the 5h and 7d limits with colored dots and a **live countdown to the 5h
+  reset**. Reads the OAuth token from the macOS **Keychain** (falling back to
+  `~/.claude/.credentials.json`), polls once per 60s with the same 429 backoff as
+  the Windows pill, handles a `401` by re-reading the token, and renders `—` for
+  null sections. State is cached between runs so backoff survives SwiftBar's
+  per-interval reruns. See [macos/README.md](macos/README.md).
 - **Embed inside the taskbar** (`$EmbedInTaskbar`, default on) via
   `SetParent(Shell_TrayWnd)` — the pill lives in the taskbar like the weather
   widget. Configurable side/offset (`$TaskbarSide`, `$TaskbarLeftOffset`,

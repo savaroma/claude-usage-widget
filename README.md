@@ -1,4 +1,4 @@
-# Claude Usage Widget (Windows)
+# Claude Usage Widget (Windows + macOS)
 
 A tiny widget that shows, at a glance, how much of your Claude **subscription**
 limit you've burned — the rolling **5-hour** window and the **weekly** limit — as
@@ -98,12 +98,30 @@ TrafficMonitor uses) to make the window a child of the taskbar.
   refresh token and break Claude Code's login); the widget relies on Claude Code
   keeping the credentials file fresh.
 
-## macOS port
+## macOS (menu bar)
 
-Want the same thing in the macOS menu bar (top-right)? See
-[docs/macos-prompt.md](docs/macos-prompt.md) — a ready-to-paste prompt with all the
-endpoint details and the macOS-specific Keychain token location. Tracked on the
-`macos` branch.
+The same thing for the macOS menu bar (top-right): a
+[SwiftBar](https://github.com/swiftbar/SwiftBar) / [xbar](https://github.com/matryer/xbar)
+plugin showing the 5h and 7d limits, with a **countdown to the 5h reset**:
+
+```
+🟢 5h 33% · 1h55m   🟢 7d 16%
+```
+
+Quick start:
+
+```sh
+brew install --cask swiftbar
+mkdir -p ~/SwiftBar
+cp macos/claude-usage.60s.py ~/SwiftBar/ && chmod +x ~/SwiftBar/claude-usage.60s.py
+open -a SwiftBar          # pick ~/SwiftBar as the plugin folder if prompted
+```
+
+Full instructions, behavior, and token/Keychain details are in
+[macos/README.md](macos/README.md). On macOS the OAuth token lives in the
+**Keychain** (not `~/.claude/.credentials.json`); the plugin reads it there and
+falls back to the file. The original build prompt is in
+[docs/macos-prompt.md](docs/macos-prompt.md).
 
 ## Disclaimer
 
